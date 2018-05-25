@@ -14,21 +14,22 @@ year-month-day). An example invocation is as follows:
 
 Licensed under the Apache Software License v2, see:
     http://www.apache.org/licenses/LICENSE-2.0
+
+Fork: python3
 """
 
-import cookielib
+import http.cookiejar
 import dateutil.parser
 import json
 import logging
 import os
 import sys
 import time
-import urllib2
-import urllib
+import urllib.request, urllib.error, urllib.parse
 
 #------------------------------------------------------------------------------
 
-class ThrottlingHandler(urllib2.BaseHandler):
+class ThrottlingHandler(urllib.request.BaseHandler):
     """A throttling handler which ensures that requests to a given host
     are always spaced out by at least a certain number of (floating point)
     seconds.
@@ -39,7 +40,8 @@ class ThrottlingHandler(urllib2.BaseHandler):
         self._requestTimeDict = dict()
 
     def default_open(self, request):
-        hostName = request.get_host()
+        hostName = request.host
+        
         lastRequestTime = self._requestTimeDict.get(hostName, 0)
         timeSinceLast = time.time() - lastRequestTime
         
@@ -66,9 +68,9 @@ class PolarFlowExporter(object):
         self._password = password
         self._logger = logging.getLogger(self.__class__.__name__)
 
-        self._url_opener = urllib2.build_opener(
+        self._url_opener = urllib.request.build_opener(
                         ThrottlingHandler(0.5),
-                        urllib2.HTTPCookieProcessor(cookielib.CookieJar()))
+                        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         self._url_opener.addheaders = [('User-Agent', 
                 'https://github.com/gabrielreid/polar-flow-export')]
         self._logged_in = False
@@ -80,14 +82,14 @@ class PolarFlowExporter(object):
         self._logger.debug("Requesting '%s'" % url)
 
         if post_params != None:
-            postData = urllib.urlencode(post_params)
+            postData = urllib.parse.urlencode(post_params).encode("UTF-8")
         else:
             postData = None
 
         try:
             response = self._url_opener.open(url, postData)
             data = response.read()
-        except Exception, e:
+        except Exception as e:
             self._logger.error("Error fetching %s: %s" % (url, e))
             raise Exception(e)
         response.close()
@@ -162,7 +164,7 @@ if __name__ == '__main__':
         output_file = open(os.path.join(output_dir, filename), 'wb')
         output_file.write(tcx_file.content)
         output_file.close()
-        print "Wrote file %s" % filename
+        print ("Wrote file %s" % filename)
 
-    print "Export complete"
+    print ("Export complete")
 
