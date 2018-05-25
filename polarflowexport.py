@@ -1,16 +1,10 @@
 """
-Command line tool for bulk exporting a range of TCX files from Polar Flow.
+Tool for bulk exporting a range of TCX files from Polar Flow.
 
-Usage is as follows:
-
-    python polarflowexport.py <username> <password> <start_date> \
-                <end_date> <output_dir>
-
-The start_date and end_date parameters are ISO-8601 date strings (i.e.
-year-month-day). An example invocation is as follows:
-
-    python polarflowexport.py me@me.com mypassword 2015-08-01 2015-08-30 \
-                        /tmp/tcxfiles
+exported files are written to the folder "tcx_export" in the current working directory
+  
+slightly modified version of this command line tool:
+https://github.com/gabrielreid/polar-flow-export
 
 Licensed under the Apache Software License v2, see:
     http://www.apache.org/licenses/LICENSE-2.0
@@ -19,13 +13,15 @@ Fork: python3
 """
 
 import http.cookiejar
-import dateutil.parser
+import datetime
 import json
 import logging
 import os
 import sys
 import time
-import urllib.request, urllib.error, urllib.parse
+import tkSimpleDialog
+import tkMessageBox
+from Tkinter import *import urllib.request, urllib.error, urllib.parse
 
 #------------------------------------------------------------------------------
 
@@ -57,7 +53,11 @@ class TcxFile(object):
         self.workout_id = workout_id
         self.date_str = date_str
         self.content = content
-
+# inactive change
+# strip away Creator/Author section, so that the TCX-files can be imported to Garmin Connect
+# see: https://forums.garmin.com/forum/into-sports/garmin-connect/79753-polar-flow-tcx-export-to-garmin-connect
+#        self.content = re.sub(r'<Creator.*</Creator>', '', self.content, flags=re.DOTALL)
+#        self.content = re.sub(r'<Author.*</Author>', '', self.content, flags=re.DOTALL)
 
 #------------------------------------------------------------------------------
 
@@ -72,7 +72,7 @@ class PolarFlowExporter(object):
                         ThrottlingHandler(0.5),
                         urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         self._url_opener.addheaders = [('User-Agent', 
-                'https://github.com/gabrielreid/polar-flow-export')]
+                'https://github.com/ldh2002/polar-flow-export')]
         self._logged_in = False
 
     def _execute_request(self, path, post_params=None):
@@ -115,8 +115,10 @@ class PolarFlowExporter(object):
         if not self._logged_in:
             self._login()
 
-        from_date = dateutil.parser.parse(from_date_str)
-        to_date = dateutil.parser.parse(to_date_str)
+        # not the most readable or robust solution, but removes dependency 
+        # from dateutil which isn't installed on windows by default
+        from_date = datetime.date(*(int(x) for x in from_date_str.split("-")))
+        to_date = datetime.date(*(int(x) for x in to_date_str.split("-")))
 
         from_spec = "%s.%s.%s" % (from_date.day, from_date.month, 
                                     from_date.year)
@@ -142,20 +144,54 @@ class PolarFlowExporter(object):
 
 #------------------------------------------------------------------------------
 
+class GUI(tkSimpleDialog.Dialog):
+    def body(self,parent):
+        self.entries = {}
+        formfields = ["username", "password", "start_date"]
+        for label in formfields:
+            row = Frame(parent)
+            row_label = Label(row, width=10, text=label, anchor='w')
+            row_entry = Entry(row, width=30)
+            row.pack(side=TOP, padx=10, pady=10)
+            row_label.pack(side=LEFT)
+            row_entry.pack(side=LEFT)
+            self.entries[label] = row_entry
+        self.entries["password"].config(show="*")
+        self.entries["start_date"].insert(0, "2017-01-31")
+        return self.entries["username"].focus()
+
+    def apply(self):
+        self.result = self.entries["username"].get(), self.entries["password"].get(), self.entries["start_date"].get()
+
+    def validate(self):
+        for label, entry in self.entries.iteritems():
+            if len(entry.get()) == 0:
+                tkMessageBox.showwarning("Input invalid", "%s can't be empty" % label)
+                return 0
+        try:
+            datetime.date(*(int(x) for x in self.entries["start_date"].get().split("-")))
+        except:
+            tkMessageBox.showwarning("Input invalid", "Start date has to be entered as YEAR-MONTH-DAY")
+            return 0
+        return 1
+
+#------------------------------------------------------------------------------
+
 if __name__ == '__main__':
 
     logging.basicConfig(level=logging.INFO)
-    try:
-        (username, password, from_date_str, 
-            to_date_str, output_dir) = sys.argv[1:]
-    except ValueError:
-        sys.stderr.write(("Usage: %s <username> <password> <from_date> "
-            "<to_date> <output_dir>\n") % sys.argv[0])
-        sys.exit(1)
     
+    root = Tk()
+    root.withdraw()
+    d = GUI(root)
+    try:
+        username, password, from_date_str = d.result
+    except:
+        sys.exit(1)
+    to_date_str = str(datetime.date.today())    
+    output_dir = "./tcx_export"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-
     exporter = PolarFlowExporter(username, password)
     for tcx_file in exporter.get_tcx_files(from_date_str, to_date_str):
         filename = "%s_%s.tcx" % (
@@ -167,4 +203,3 @@ if __name__ == '__main__':
         print ("Wrote file %s" % filename)
 
     print ("Export complete")
-
